@@ -296,6 +296,13 @@ def save_filecache(cache_file: Path) -> None:
 # ─── Cleanup ─────────────────────────────────────────────────────────────────
 
 
+_IGNORABLE_FILES = {'.DS_Store', 'Thumbs.db', 'desktop.ini'}
+
+
+def _ignorable(p: Path) -> bool:
+    return p.is_file() and p.name in _IGNORABLE_FILES
+
+
 def find_empty_dirs(root: Path) -> list[Path]:
     """Return all dirs that would be empty after recursive cleanup, deepest first."""
     candidates = sorted(
@@ -308,7 +315,7 @@ def find_empty_dirs(root: Path) -> list[Path]:
     for d in candidates:
         if not d.exists():
             continue
-        if all(c in scheduled for c in d.iterdir()):
+        if all(c in scheduled or _ignorable(c) for c in d.iterdir()):
             scheduled.add(d)
             result.append(d)
     return result
@@ -316,6 +323,9 @@ def find_empty_dirs(root: Path) -> list[Path]:
 
 def delete_empty_dirs(empty_dirs: list[Path]) -> None:
     for d in empty_dirs:
+        for f in d.iterdir():
+            if _ignorable(f):
+                f.unlink()
         try:
             d.rmdir()
         except OSError:
