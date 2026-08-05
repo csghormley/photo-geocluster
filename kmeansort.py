@@ -758,7 +758,8 @@ def main() -> None:
             for d in empty:
                 print(f'    {d.relative_to(outdir)}/')
 
-        print(f'\nSummary: {len(moves)} file(s) would move into {total_dirs} folder(s) under {outdir}.')
+        verb = 'copy' if not in_place else 'move'
+        print(f'\nSummary: {len(moves)} file(s) would {verb} into {total_dirs} folder(s) under {outdir}.')
         if guessed_no_gps:
             print(f'         {len(guessed_no_gps)} no-GPS file(s) would be assigned to location clusters (--guess-loc).')
         if remaining_no_gps:
@@ -768,7 +769,8 @@ def main() -> None:
         return
 
     # ── Execute ───────────────────────────────────────────────────────────────
-    print(f'\nMoving {len(moves)} file(s) …')
+    verb = 'Copying' if not in_place else 'Moving'
+    print(f'\n{verb} {len(moves)} file(s) …')
     dirs_created: set[Path] = set()
     actual_moves: list[tuple[Path, Path]] = []
     for i, (src, dst) in enumerate(moves, 1):
@@ -784,7 +786,10 @@ def main() -> None:
                 final = dst.parent / f'{dst.stem}_{j}{dst.suffix}'
                 j += 1
 
-        shutil.move(str(src), str(final))
+        if in_place:
+            shutil.move(str(src), str(final))
+        else:
+            shutil.copy2(str(src), str(final))
         actual_moves.append((src, final))
         try:
             rel = final.relative_to(outdir)
@@ -792,7 +797,8 @@ def main() -> None:
             rel = final
         print(f'  [{i:>{len(str(len(moves)))}}/{len(moves)}] {src.name} → {rel}')
 
-    print(f'\nDone. {len(moves)} file(s) moved into {outdir}.')
+    past = 'copied' if not in_place else 'moved'
+    print(f'\nDone. {len(moves)} file(s) {past} into {outdir}.')
     if guessed_no_gps:
         print(f'{len(guessed_no_gps)} no-GPS file(s) were assigned to location clusters (--guess-loc).')
     if remaining_no_gps:
