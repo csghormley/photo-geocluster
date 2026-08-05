@@ -2,6 +2,8 @@
 
 **photo-geocluster** groups a directory of photos and videos into named subfolders using k-means clustering on GPS coordinates and capture dates extracted from EXIF metadata. Each geographic cluster is automatically labelled via Nominatim reverse geocoding, and an optional second clustering pass splits each location into date-based sub-folders — giving you a clean hierarchy like `Portland, Oregon / 2023-07` without any manual tagging.
 
+The author has tested this script but there is NO WARRANTY. It can delete files! Use at your own risk.
+
 ## Synopsis
 
 ```
@@ -44,3 +46,9 @@ uv run kmeansort --kloc 5 --dry-run ~/Pictures/Unsorted
 ```
 
 > **Note:** Nominatim reverse geocoding is rate-limited to 1 request per second. Results are cached locally so subsequent runs over the same photos are fast.
+
+## Acknowledgements
+
+- [Claude](https://www.anthropic.com/claude) by Anthropic — this project was developed with the assistance of Claude Code.
+- [ExifTool](https://exiftool.org/) by Phil Harvey — the indispensable Swiss Army knife for reading and writing image metadata.
+- [OpenStreetMap](https://www.openstreetmap.org/) and the [Nominatim](https://nominatim.org/) geocoding service — for providing free, open reverse geocoding that powers location labelling.
