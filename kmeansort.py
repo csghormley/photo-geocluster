@@ -296,11 +296,10 @@ def save_filecache(cache_file: Path) -> None:
 # ─── Cleanup ─────────────────────────────────────────────────────────────────
 
 
-def find_empty_dirs(root: Path, trash: Path) -> list[Path]:
+def find_empty_dirs(root: Path) -> list[Path]:
     """Return all dirs that would be empty after recursive cleanup, deepest first."""
     candidates = sorted(
-        (d for d in root.rglob('*')
-         if d.is_dir() and d != trash and not d.is_relative_to(trash)),
+        (d for d in root.rglob('*') if d.is_dir()),
         key=lambda d: len(d.parts),
         reverse=True,
     )
@@ -371,21 +370,33 @@ def _nearest_cluster_info(
     best_dist: Optional[int] = None
     best_loc: Optional[str] = None
     best_date: Optional[str] = None
+    best_dir: Optional[str] = None
     for loc_c in range(kloc):
         if use_kdate and loc_c in date_info:
             for info in date_info[loc_c].values():
                 lo, hi = info['lo'], info['hi']
-                dist = (lo - img_date).days if img_date < lo else (img_date - hi).days if img_date > hi else 0
+                if img_date < lo:
+                    dist, direction = (lo - img_date).days, 'earlier'
+                elif img_date > hi:
+                    dist, direction = (img_date - hi).days, 'later'
+                else:
+                    dist, direction = 0, 'within'
                 if best_dist is None or dist < best_dist:
-                    best_dist, best_loc, best_date = dist, loc_info[loc_c]['folder'], info['folder']
+                    best_dist, best_loc, best_date, best_dir = dist, loc_info[loc_c]['folder'], info['folder'], direction
         elif loc_c in loc_date_ranges:
             lo, hi = loc_date_ranges[loc_c]
-            dist = (lo - img_date).days if img_date < lo else (img_date - hi).days if img_date > hi else 0
+            if img_date < lo:
+                dist, direction = (lo - img_date).days, 'earlier'
+            elif img_date > hi:
+                dist, direction = (img_date - hi).days, 'later'
+            else:
+                dist, direction = 0, 'within'
             if best_dist is None or dist < best_dist:
-                best_dist, best_loc, best_date = dist, loc_info[loc_c]['folder'], None
+                best_dist, best_loc, best_date, best_dir = dist, loc_info[loc_c]['folder'], None, direction
     if best_loc is None:
         return {'reason': 'no_clusters'}
-    return {'reason': 'nearest', 'loc_folder': best_loc, 'date_folder': best_date, 'dist_days': best_dist}
+    return {'reason': 'nearest', 'loc_folder': best_loc, 'date_folder': best_date,
+            'dist_days': best_dist, 'direction': best_dir}
 
 
 def _log_file_entry(lines: list[str], name: str, loc_folder: Optional[str],
@@ -436,8 +447,16 @@ def write_lastrun_log(
             reason = cm.get('reason') if isinstance(cm, dict) else None
             if reason == 'nearest':
                 dist = cm['dist_days']
-                note = f'{dist}d away' if dist else 'within range'
-                _log_file_entry(lines, r['path'].name, cm['loc_folder'], cm.get('date_folder'), note)
+                direction = cm.get('direction', '')
+                tag = f' [{dist}d {direction}]' if dist else ' [within range]'
+                loc_folder = cm['loc_folder']
+                date_folder = cm.get('date_folder')
+                lines.append(f'{r["path"].name} closest match:')
+                if date_folder:
+                    lines.append(f'   {loc_folder}/')
+                    lines.append(f'       {date_folder}/{tag}')
+                else:
+                    lines.append(f'   {loc_folder}/{tag}')
             elif reason == 'ambiguous':
                 lines.append(f'{r["path"].name}  [ambiguous]')
                 for folder in cm['folders']:
@@ -501,6 +520,8 @@ def main() -> None:
     if kloc < args.kloc:
         print(f'Note: --kloc reduced to {kloc} (fewer geotagged images than requested).')
 
+    # Sort by GPS so k-means input is stable regardless of where files are stored.
+    records.sort(key=lambda r: r['gps'])
     xyz = np.array([latlon_to_xyz(*r['gps']) for r in records])
     kloc = min(kloc, len(np.unique(xyz, axis=0)))
     loc_labels = KMeans(n_clusters=kloc, n_init=10, random_state=42).fit_predict(xyz)
@@ -523,6 +544,7 @@ def main() -> None:
             if not dated_loc:
                 continue
 
+            dated_loc.sort(key=lambda r: r['date'])
             kd = min(args.kdate, len(dated_loc))
             if kd < args.kdate:
                 print(f'Note: location cluster {loc_c + 1}: --kdate reduced to {kd} '
@@ -652,6 +674,7 @@ def main() -> None:
         dated_no_gps = [r for r in remaining_no_gps if r['date'] is not None]
 
         if dated_no_gps:
+            dated_no_gps.sort(key=lambda r: r['date'])
             kd = min(args.kdate, len(dated_no_gps))
             if kd < args.kdate:
                 print(f'Note: no-location items: --kdate reduced to {kd} '
@@ -702,8 +725,6 @@ def main() -> None:
         moves.append((r['path'], dest_dir / r['path'].name))
 
     # ── Dry-run summary ───────────────────────────────────────────────────────
-    trash = outdir / '_trash'
-
     if args.dry_run:
         print('\n─── DRY RUN ──────────────────────────────────────────────────────')
         by_dir: dict[Path, list[str]] = defaultdict(list)
@@ -721,7 +742,7 @@ def main() -> None:
             for f in files:
                 print(f'    {f}')
 
-        empty = find_empty_dirs(outdir, trash) if (outdir.exists() and not args.no_delete_empty) else []
+        empty = find_empty_dirs(outdir) if (outdir.exists() and not args.no_delete_empty) else []
         if empty:
             print(f'\n  [would delete]  ({len(empty)} empty folder(s))')
             for d in empty:
@@ -769,7 +790,7 @@ def main() -> None:
 
     # ── Cleanup empty dirs ────────────────────────────────────────────────────
     if not args.no_delete_empty:
-        empty = find_empty_dirs(outdir, trash)
+        empty = find_empty_dirs(outdir)
         if empty:
             print(f'\nDeleting {len(empty)} empty folder(s) …')
             delete_empty_dirs(empty)
