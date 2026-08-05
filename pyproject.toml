@@ -12,6 +12,7 @@ dependencies = [
     "scikit-learn>=1.0.0",
     "numpy>=1.21.0",
     "requests>=2.25.0",
+    "pyexiftool>=0.5.0",
 ]
 
 [project.scripts]
