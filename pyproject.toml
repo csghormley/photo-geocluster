@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "photo-cluster"
+version = "0.1.0"
+description = "Sort photos into folders using k-means clustering on GPS/date EXIF metadata"
+requires-python = ">=3.10"
+dependencies = [
+    "Pillow>=9.0.0",
+    "scikit-learn>=1.0.0",
+    "numpy>=1.21.0",
+    "requests>=2.25.0",
+]
+
+[project.scripts]
+kmeansort = "kmeansort:main"
+
+[tool.setuptools]
+py-modules = ["kmeansort"]
