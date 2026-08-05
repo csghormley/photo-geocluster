@@ -297,45 +297,53 @@ def main() -> None:
         print(f'Note: --kloc reduced to {kloc} (fewer geotagged images than requested).')
 
     xyz = np.array([latlon_to_xyz(*r['gps']) for r in records])
+    kloc = min(kloc, len(np.unique(xyz, axis=0)))
     loc_labels = KMeans(n_clusters=kloc, n_init=10, random_state=42).fit_predict(xyz)
     for i, r in enumerate(records):
         r['loc_label'] = int(loc_labels[i])
 
-    # ── Date clustering (optional) ────────────────────────────────────────────
-    kdate = 0
-    date_info: dict[int, dict] = {}
+    # ── Date clustering (optional, per location cluster) ─────────────────────
+    # date_info[loc_label][date_label] = {'folder': ...}
+    date_info: dict[int, dict[int, dict]] = {}
 
     if args.kdate:
-        dated = [r for r in records if r['date'] is not None]
-        no_date_count = len(records) - len(dated)
-        if no_date_count:
-            print(f'Note: {no_date_count} image(s) have no date — '
-                  'they will be placed in their location folder without a date sub-folder.')
+        epoch = date(1970, 1, 1)
+        no_date_total = 0
 
-        if not dated:
-            print('Warning: --kdate specified but no images have date metadata; ignoring.')
-        else:
-            kdate = min(args.kdate, len(dated))
-            if kdate < args.kdate:
-                print(f'Note: --kdate reduced to {kdate}.')
+        for loc_c in range(kloc):
+            loc_recs = [r for r in records if r['loc_label'] == loc_c]
+            dated_loc = [r for r in loc_recs if r['date'] is not None]
+            no_date_total += len(loc_recs) - len(dated_loc)
 
-            epoch = date(1970, 1, 1)
-            day_nums = np.array([[(r['date'] - epoch).days] for r in dated], dtype=float)
-            date_labels = KMeans(n_clusters=kdate, n_init=10, random_state=42).fit_predict(day_nums)
+            if not dated_loc:
+                continue
 
-            for i, r in enumerate(dated):
+            kd = min(args.kdate, len(dated_loc))
+            if kd < args.kdate:
+                print(f'Note: location cluster {loc_c + 1}: --kdate reduced to {kd} '
+                      f'({len(dated_loc)} dated image(s)).')
+
+            day_nums = np.array([[(r['date'] - epoch).days] for r in dated_loc], dtype=float)
+            kd = min(kd, len(np.unique(day_nums)))
+            date_labels = KMeans(n_clusters=kd, n_init=10, random_state=42).fit_predict(day_nums)
+
+            for i, r in enumerate(dated_loc):
                 r['date_label'] = int(date_labels[i])
 
-            for r in records:
-                r.setdefault('date_label', None)
-
-            # Build per-date-cluster metadata
-            for c in range(kdate):
-                recs_c = [r for r in dated if r['date_label'] == c]
-                dates_c = sorted(r['date'] for r in recs_c)
-                lo, hi = dates_c[0], dates_c[-1]
+            date_info[loc_c] = {}
+            for dc in range(kd):
+                recs_dc = [r for r in dated_loc if r['date_label'] == dc]
+                dates_dc = sorted(r['date'] for r in recs_dc)
+                lo, hi = dates_dc[0], dates_dc[-1]
                 folder = lo.isoformat() if lo == hi else f'{lo.isoformat()}_to_{hi.isoformat()}'
-                date_info[c] = {'folder': folder, 'min': lo, 'max': hi, 'count': len(recs_c)}
+                date_info[loc_c][dc] = {'folder': folder}
+
+        if no_date_total:
+            print(f'Note: {no_date_total} image(s) have no date — '
+                  'placed in their location folder without a date sub-folder.')
+
+        for r in records:
+            r.setdefault('date_label', None)
 
     # ── Geocode cluster centroids → location folder names ─────────────────────
     print('\nReverse-geocoding location cluster centroids …')
@@ -364,8 +372,8 @@ def main() -> None:
         loc_folder = loc_info[r['loc_label']]['folder']
         date_label = r.get('date_label')
 
-        if kdate and date_label is not None and date_label in date_info:
-            dest_dir = outdir / loc_folder / date_info[date_label]['folder']
+        if args.kdate and date_label is not None and date_label in date_info.get(r['loc_label'], {}):
+            dest_dir = outdir / loc_folder / date_info[r['loc_label']][date_label]['folder']
         else:
             dest_dir = outdir / loc_folder
 
